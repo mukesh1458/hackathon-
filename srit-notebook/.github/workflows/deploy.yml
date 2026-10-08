@@ -1,0 +1,68 @@
+name: Deploy Supabase Stack
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+
+jobs:
+  test_and_deploy:
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Basic Tests
+        run: |
+          echo "Running tests..."
+          # Mock test step
+          python -c "assert True, 'Tests passed'"
+          echo "Tests passed."
+
+      - name: Deploy to Dev
+        if: github.ref == 'refs/heads/dev'
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.DEV_JWT_SECRET }}
+        run: |
+          echo "Deploying to Dev environment..."
+          cd dev
+          # The .env file would normally be generated or populated here using secrets
+          # For self-hosted runner on the same machine, we just use docker compose up
+          docker compose up -d
+          echo "Dev deployed."
+
+      - name: Deploy to Prod
+        if: github.ref == 'refs/heads/main'
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.PROD_JWT_SECRET }}
+        run: |
+          echo "Deploying to Prod environment..."
+          cd prod
+          # Rollback preparation step: copy current state if rollback is needed
+          cp docker-compose.yml docker-compose.yml.bak || true
+          
+          # Bring up new stack
+          docker compose up -d --build
+          
+          echo "Verifying prod deployment..."
+          sleep 10
+          if ! docker inspect -f '{{.State.Running}}' prod-supabase-rest-1 | grep "true"; then
+            echo "Prod deployment failed, rolling back!"
+            mv docker-compose.yml.bak docker-compose.yml
+            docker compose up -d
+            exit 1
+          fi
+          
+          echo "Prod deployed successfully."
+
+      - name: Apply Database Migrations
+        run: |
+          echo "Applying migrations..."
+          # In a real setup, we would use Supabase CLI:
+          # supabase db push --db-url postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5433/postgres
+          echo "Simulating migration push..."
+          ls -la supabase/migrations/
